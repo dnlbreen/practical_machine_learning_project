@@ -1,0 +1,139 @@
+---
+title: "practical_machine_learning_project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+##What you should submit
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+##Load Libraries
+
+```{r load_libraries}
+library(caret) #machine learning
+library(e1071) #svm
+library(rpart) #partition
+library(randomForest) #random forests (is faster than caret)
+```
+
+##Reproducibility
+
+```{r set_seed}
+set.seed(1)
+```
+
+##Explore the Data
+
+There are a number of different formats which values that are not available appear in.
+
+```{r read_in}
+
+training <- read.csv("pml-training.csv", na.strings=c("", "NA", "#DIV/0!"), row.names = 1)
+testing <- read.csv("pml-testing.csv", na.strings=c("", "NA", "#DIV/0!"), row.names = 1)
+```
+
+If we try `complete.cases` on train and test, we will eliminate most of the data. Fortunately, it looks like it is only some of the columns which are missing values, so we get rid of these.
+
+```{r clean_data}
+training <- training[,!sapply(training,function(x) any(is.na(x)))]
+testing <- testing[,!sapply(testing,function(x) any(is.na(x)))]
+```
+
+Running `sum(complete.cases(training))` and similarly for the test set shows that we don't have any more NA values, so we might just use these features. But if we do, we'll run into problems later since random forests won't know what to do if it gets a new name of a person, which is one of the features. Thus, we will get rid of information that has no practical predictive ability, like people's names, so we get rid of the first 6 columns.
+
+```{r retain_only_predictive_columns}
+
+training <-training[,-c(1:6)]
+testing <-testing[,-c(1:6)]
+```
+
+
+My definition of validation set follows the convention of the coursera machine learning specialization for python, which corresponds to the 'test' set of the data science specialization.
+
+##Partition Data
+
+Now we need to split our training set into a training and validation set. We do so below.
+
+```{r split_validation}
+indices <- createDataPartition(y=training$classe, p=0.8, list=FALSE)
+Train <- training[indices, ] 
+Validation <- training[-indices, ]
+```
+
+##Train Data
+
+This is a large data set, so we expect that random forests will perform the best. Let's try training with this algorithm. It's cheap to train different models, so let's try a few others.  Note: this will take a few minutes. We will try `svm` and `lda`. We could do many more, but limit ourselves to these cases.
+
+```{r random_forest_learn}
+model_forests <- randomForest(classe ~ ., data = Train)
+model_svm <- svm(classe ~. , data=Train)
+model_lda <- train(classe ~. , data=Train, method="lda")
+```
+
+##Predict
+
+Now that we have our model, we will see how well it does on the validation set with random forests.
+
+```{r random_forest_predict}
+
+prediction_forest <- predict(model_forests, Validation, type = "class")
+confusionMatrix(prediction_forest, Validation$classe)
+```
+
+We only missed a few values, so this is very good performance. Let's compare to the confusion matrix on the training set, which should be around at least as good.
+
+```{r random_forest_predict_train}
+prediction_forest_train <- predict(model_forests, Train, type = "class")
+confusionMatrix(prediction_forest_train, Train$classe)
+```
+
+Refreshingly, random forests does even better on the training data, as it should. Note that if we keep all variables, we get even better performance and appearance of good predictions on the validation data, but can't predict on the test data when we get names of new people. So we've overfit to the names of the people. The performance is still quite good, though.
+
+Given this, we expect near perfect accuracy on the test data (validation data in the data science specialization convention).
+
+```{r}
+prediction_forest_test <- predict(model_forests, testing, type = "class")
+prediction_forest_test
+```
+
+So random forests is probably sufficient, but let's just compare to other methods on the validation set.
+
+```{r predicton_accuracy_comparison}
+mean(predict(model_forests, Validation) == Validation$classe)
+mean(predict(model_svm, Validation) == Validation$classe)
+mean(predict(model_lda, Validation) == Validation$classe)
+
+```
+
+We could probably do better by combining the models, but we won't worry about that here.
+
+#Submit
+
+Now we just need to write this data to a file for submission
+
+```{r submission}
+write.table(prediction_forest_test, file = "problem_ids.txt", append = FALSE, quote = FALSE, sep = "\n",
+            eol = "\n", na = "NA", dec = ".", row.names = FALSE,
+            col.names = FALSE, qmethod = c("escape", "double"),
+            fileEncoding = "")
+```
+
